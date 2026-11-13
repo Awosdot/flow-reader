@@ -1,0 +1,63 @@
+name: Build Flow Reader APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Reuse the same signing key on every build so updates install over the old app
+        uses: actions/cache@v4
+        with:
+          path: debug.keystore
+          key: signing-key-v1
+
+      - name: Create signing key if there is none yet
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Keep a copy as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-reader-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish APK to a release for one-tap download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk flow-reader.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest flow-reader.apk \
+            --title "Flow Reader (latest)" \
+            --notes "Latest build. Download flow-reader.apk and install it." \
+            --target "${{ github.sha }}"
