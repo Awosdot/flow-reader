@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "FlowReader"
+rootProject.name = "GlideFlow"
 include(":app")

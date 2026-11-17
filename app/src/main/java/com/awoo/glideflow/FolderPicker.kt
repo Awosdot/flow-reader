@@ -1,4 +1,4 @@
-package com.awoo.flowreader
+package com.awoo.glideflow
 
 import android.os.Environment
 import android.view.ViewGroup

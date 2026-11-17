@@ -1,4 +1,4 @@
-package com.awoo.flowreader
+package com.awoo.glideflow
 
 import android.Manifest
 import android.content.Intent
@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         val permText = TextView(this).apply {
-            text = "Flow Reader needs access to your files so it can find the PDFs Telegram downloads. It only reads, and has no internet access."
+            text = "Glide Flow needs access to your files so it can find the PDFs Telegram downloads. It only reads, and has no internet access."
             textSize = 17f
             gravity = Gravity.CENTER
             setTextColor(fg)
@@ -238,7 +238,7 @@ class MainActivity : AppCompatActivity() {
     private fun showStats() {
         AlertDialog.Builder(this)
             .setTitle("Your reading")
-            .setMessage(store.statsText())
+            .setMessage(store.statsText() + "\n\nTip: long press a series on the shelf to mark all of it as read.")
             .setPositiveButton("Close", null)
             .show()
     }
@@ -267,13 +267,38 @@ class MainActivity : AppCompatActivity() {
             }
             if (status.isEmpty()) base else "$base   ($status)"
         }.toTypedArray()
+        val allRead = s.episodes.all { store.isRead(it.file) }
         val d = AlertDialog.Builder(this)
             .setTitle(s.name)
             .setItems(labels) { _, which -> open(s.episodes[which]) }
+            .setNeutralButton(if (allRead) "Mark all unread" else "Mark all read") { _, _ ->
+                store.setSeriesRead(s, !allRead)
+                refresh()
+            }
             .setNegativeButton("Close", null)
             .show()
         val idx = s.episodes.indexOfFirst { it.file.path == cont.file.path }
         if (idx > 0) d.listView.setSelection(idx)
+    }
+
+    /** Long press on a card: mark the whole series read or unread, or pick an episode. */
+    private fun showSeriesMenu(s: Series) {
+        val allRead = s.episodes.all { store.isRead(it.file) }
+        val items = ArrayList<String>()
+        items.add(if (allRead) "Mark all as unread" else "Mark all as read")
+        if (s.episodes.size > 1) items.add("Choose an episode")
+        AlertDialog.Builder(this)
+            .setTitle(s.name)
+            .setItems(items.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    store.setSeriesRead(s, !allRead)
+                    refresh()
+                } else {
+                    showEpisodes(s)
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     class CardVH(
@@ -389,7 +414,7 @@ class MainActivity : AppCompatActivity() {
 
             h.card.setOnClickListener { open(cont) }
             h.card.setOnLongClickListener {
-                showEpisodes(s)
+                showSeriesMenu(s)
                 true
             }
             h.action.setOnClickListener { showEpisodes(s) }

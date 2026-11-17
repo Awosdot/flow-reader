@@ -1,4 +1,4 @@
-package com.awoo.flowreader
+package com.awoo.glideflow
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -81,7 +81,7 @@ data class Series(val key: String, val name: String, val episodes: List<Pdf>)
 
 class PdfStore(context: Context) {
     private val prefs = context.applicationContext
-        .getSharedPreferences("flow_reader", Context.MODE_PRIVATE)
+        .getSharedPreferences("glide_flow", Context.MODE_PRIVATE)
 
     /** Folder the user picked, or null for automatic mode. */
     fun chosenFolder(): File? =
@@ -287,12 +287,53 @@ class PdfStore(context: Context) {
         return best
     }
 
+    /** Reading time is an estimate: time between touches and scrolls, with long gaps capped. */
+    fun addReadingMs(ms: Long) {
+        if (ms <= 0L) return
+        val k = "t:" + today()
+        prefs.edit()
+            .putLong("ms", prefs.getLong("ms", 0L) + ms)
+            .putLong(k, prefs.getLong(k, 0L) + ms)
+            .apply()
+    }
+
+    fun readingMsToday(): Long = prefs.getLong("t:" + today(), 0L)
+
+    fun readingMsTotal(): Long = prefs.getLong("ms", 0L)
+
+    private fun fmtTime(ms: Long): String {
+        val m = ms / 60000L
+        return when {
+            ms <= 0L -> "0 min"
+            m < 1L -> "under 1 min"
+            m < 60L -> "$m min"
+            else -> "${m / 60L} h ${m % 60L} min"
+        }
+    }
+
+    /** Mark every episode of a series as read, or put them all back to unread. Stats counters are untouched. */
+    fun setSeriesRead(s: Series, v: Boolean) {
+        val e = prefs.edit()
+        for (p in s.episodes) {
+            e.putBoolean("r:" + p.file.path, v)
+            e.putInt("p:" + p.file.path, 0)
+        }
+        e.apply()
+    }
+
     fun statsText(): String {
         val all = scan()
+        val activeDays = days().size
         val finished = all.count { isRead(it.file) }
         val multi = all.groupBy { it.info.key }.values.filter { it.size > 1 }
         val seriesDone = multi.count { g -> g.all { isRead(it.file) } }
-        return "PDFs in library: ${all.size}\n" +
+        val total = readingMsTotal()
+        val avg = if (activeDays > 0) total / activeDays else 0L
+        return "Time reading (estimate)\n" +
+            "Today: ${fmtTime(readingMsToday())}\n" +
+            "Total: ${fmtTime(total)}\n" +
+            "Average per day: ${fmtTime(avg)}\n\n" +
+            "PDFs in library: ${all.size}\n" +
             "Finished: $finished\n" +
             "Unread: ${all.size - finished}\n\n" +
             "Series with 2 or more parts: ${multi.size}\n" +

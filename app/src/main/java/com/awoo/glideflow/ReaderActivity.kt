@@ -1,4 +1,4 @@
-package com.awoo.flowreader
+package com.awoo.glideflow
 
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
@@ -9,6 +9,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.ParcelFileDescriptor
 import android.text.TextUtils
 import android.util.LruCache
@@ -83,6 +84,9 @@ class ReaderActivity : AppCompatActivity() {
     private var loadedAny = false
     private var current = -1
     private var wasMoving = false
+    private var controls: ReaderControls? = null
+    private var lastActive = 0L
+    private var pendingMs = 0L
     private val hideLabel = Runnable { label.visibility = android.view.View.GONE }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -124,6 +128,13 @@ class ReaderActivity : AppCompatActivity() {
         val llp = FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
         llp.topMargin = dp(16)
         root.addView(label, llp)
+
+        controls = ReaderControls(
+            this, rv, root, ContextCompat.getColor(this, R.color.accent),
+            describe = { positionText() },
+            jumpToEnd = { jumpToEnd() },
+            moreComing = { loading || nextToLoad < segs.size }
+        ).also { it.attach() }
         setContentView(root)
 
         items.add(Item.Footer) // shows "Opening..." until the first episode is in
@@ -131,12 +142,16 @@ class ReaderActivity : AppCompatActivity() {
         // Tap zones. The listener only watches; scrolling still works normally.
         val gd = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: MotionEvent): Boolean {
+                tick()
                 if (wasMoving || !loadedAny) return false
                 val h = rv.height.toFloat()
                 when {
                     e.y > h * 0.7f -> scrollPage(1)
                     e.y < h * 0.2f -> scrollPage(-1)
-                    else -> showLabel()
+                    else -> {
+                        showLabel()
+                        controls?.show()
+                    }
                 }
                 return true
             }
@@ -152,6 +167,7 @@ class ReaderActivity : AppCompatActivity() {
         })
         rv.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(r: RecyclerView, dx: Int, dy: Int) {
+                tick()
                 trackProgress()
                 maybeLoadMore()
             }
@@ -271,6 +287,7 @@ class ReaderActivity : AppCompatActivity() {
         rv.post {
             trackProgress()
             maybeLoadMore()
+            controls?.sync()
         }
     }
 
@@ -340,16 +357,57 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    private fun showLabel() {
-        if (!loadedAny || current !in segs.indices) return
-        val s = segs[current]
+    private fun positionText(): String {
+        if (!loadedAny || items.isEmpty()) return ""
         val fv = lm.findFirstVisibleItemPosition()
-        val page = if (fv in items.indices) (items[fv] as? Item.Page)?.page ?: 0 else 0
+        if (fv !in items.indices) return ""
+        val item = items[fv]
+        val si = segOf(item)
+        if (si !in segs.indices) return ""
+        val s = segs[si]
         val name = s.pdf.info.label ?: s.pdf.info.name
-        label.text = if (s.pages > 0) "$name  ·  ${page + 1} / ${s.pages}" else name
+        val page = (item as? Item.Page)?.page ?: 0
+        return if (s.pages > 0) "$name  ·  ${page + 1} / ${s.pages}" else name
+    }
+
+    private fun showLabel() {
+        val t = positionText()
+        if (t.isEmpty()) return
+        label.text = t
         label.visibility = android.view.View.VISIBLE
         main.removeCallbacks(hideLabel)
         main.postDelayed(hideLabel, 1800)
+    }
+
+    /** Jump to the bottom of the current episode. Press again to go on to the end of the next one. */
+    private fun jumpToEnd() {
+        if (!loadedAny || current !in segs.indices) return
+        var k = current
+        val lv = lm.findLastVisibleItemPosition()
+        if (segs[k].lastIdx >= 0 && reachedEnd(segs[k], lv) && k + 1 < segs.size && segs[k + 1].lastIdx >= 0) k++
+        val s = segs[k]
+        val last = items.getOrNull(s.lastIdx) as? Item.Page ?: return
+        val w = if (rv.width > 0) rv.width else resources.displayMetrics.widthPixels
+        val h = (w * last.ratio).toInt()
+        lm.scrollToPositionWithOffset(s.lastIdx, rv.height - h)
+    }
+
+    // Reading time estimate: time between touches and scrolls, long gaps are capped
+    private fun tick() {
+        val now = SystemClock.uptimeMillis()
+        if (lastActive != 0L) {
+            val d = now - lastActive
+            if (d > 0L) pendingMs += minOf(d, 45_000L)
+        }
+        lastActive = now
+        if (pendingMs >= 15_000L) flushTime()
+    }
+
+    private fun flushTime() {
+        if (pendingMs > 0L) {
+            store.addReadingMs(pendingMs)
+            pendingMs = 0L
+        }
     }
 
     private fun scrollPage(dir: Int) {
@@ -477,13 +535,22 @@ class ReaderActivity : AppCompatActivity() {
         if (current in segs.indices) outState.putString("cur", segs[current].pdf.file.path)
     }
 
+    override fun onResume() {
+        super.onResume()
+        lastActive = 0L
+    }
+
     override fun onPause() {
         super.onPause()
+        controls?.stopAuto()
         saveProgress()
+        flushTime()
+        lastActive = 0L
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        controls?.release()
         main.removeCallbacksAndMessages(null)
         exec.execute {
             for (s in sessions.values) s.close()

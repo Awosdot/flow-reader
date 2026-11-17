@@ -1,4 +1,4 @@
-name: Build Flow Reader APK
+name: Build Glide Flow APK
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: debug.keystore
-          key: signing-key-v1
+          key: signing-key-glide-flow-v1
 
       - name: Create signing key if there is none yet
         run: |
@@ -47,7 +47,7 @@ jobs:
       - name: Keep a copy as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: flow-reader-apk
+          name: glide-flow-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publish APK to a release for one-tap download
@@ -55,9 +55,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk flow-reader.apk
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest flow-reader.apk \
-            --title "Flow Reader (latest)" \
-            --notes "Latest build. Download flow-reader.apk and install it." \
+          cp app/build/outputs/apk/debug/app-debug.apk glide-flow.apk
+          gh release delete glide-flow --yes --cleanup-tag || true
+          gh release create glide-flow glide-flow.apk \
+            --title "Glide Flow (latest)" \
+            --notes "Latest build. Download glide-flow.apk and install it." \
             --target "${{ github.sha }}"

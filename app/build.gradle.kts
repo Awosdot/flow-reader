@@ -4,12 +4,12 @@ plugins {
 }
 
 android {
-    namespace = "com.awoo.flowreader"
+    namespace = "com.awoo.glideflow"
     compileSdk = 34
 
     defaultConfig {
-        // New id, so this installs as its own app next to the original Swipe Reader
-        applicationId = "com.awoo.flowreader"
+        // Own id, so it installs next to the other apps
+        applicationId = "com.awoo.glideflow"
         minSdk = 29
         // Android 10 target keeps direct access to /sdcard/Telegram via requestLegacyExternalStorage
         targetSdk = 29
